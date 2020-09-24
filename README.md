@@ -12,3 +12,5 @@ Referenced projects:
 1. [HostingCLR](https://github.com/etormadiv/HostingCLR/)
 2. [metasploit-execute-assembly](https://github.com/b4rtik/metasploit-execute-assembly)
 3. [Hiding your .NET - ETW](https://www.mdsec.co.uk/2020/03/hiding-your-net-etw/)
+
+My first iteration was entirely on-disk and is available [here](https://gist.github.com/15f3423732faed6c413c38b2372f7701)
