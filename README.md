@@ -5,7 +5,7 @@ This project is entirely a POC, it was my research into looking at how [execute-
 1. [ConsoleApp1](./ConsoleApp1): An example C# Project that will be executed via the unmanaged code
 2. [InMemoryNET](./InMemoryNET): The unmanaged code to execute .NET
 
-As well as executing the .NET Assembly, it will patching AMSI and ETW and is intended to be purely a reference piece.
+As well as executing the .NET Assembly, it will patch AMSI and ETW and is intended to be purely a reference piece.
 
 Referenced projects:
 
