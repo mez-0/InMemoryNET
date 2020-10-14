@@ -1,11 +1,11 @@
-﻿using Microsoft.Win32;
+using Microsoft.Win32;
 using System;
 
 namespace ConsoleApp1
 {
     public class Program
     {
-        public static int EntryPoint(string arguments)
+        public static int Main()
         {
             string[] version_names = null;
             RegistryKey installed_versions = null;
@@ -43,9 +43,6 @@ namespace ConsoleApp1
                 }
             }
             return 0;
-        }
-        public static void Main()
-        {
         }
     }
 }
