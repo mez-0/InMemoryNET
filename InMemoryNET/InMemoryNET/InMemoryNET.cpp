@@ -33,7 +33,7 @@ std::pair<PVOID, DWORD> GetShellcodeFromFile(LPCSTR Filename) {
 
 int main()
 {
-	LPCSTR Filename = "G:\\Dropbox\\GitHub\\mez-0\\InMemoryNET\\ConsoleApp1\\ConsoleApp1\\bin\\Debug\\ConsoleApp1.exe";
+	LPCSTR Filename = "\\assembly\\exe";
 	std::pair<PVOID, DWORD> shellcodePair = GetShellcodeFromFile(Filename);
 	PVOID shellcodeBytes = shellcodePair.first;
 	DWORD shellcodeBytesLength = shellcodePair.second;
