@@ -1,48 +1,34 @@
+<<<<<<< HEAD
 using Microsoft.Win32;
 using System;
+=======
+﻿using System;
+>>>>>>> d5be2ba87d3c38f581dca7c4248658564c1315ac
 
 namespace ConsoleApp1
 {
     public class Program
     {
+<<<<<<< HEAD
         public static int Main()
+=======
+        public static void Main(string[] args)
+>>>>>>> d5be2ba87d3c38f581dca7c4248658564c1315ac
         {
-            string[] version_names = null;
-            RegistryKey installed_versions = null;
-
-            try
+            Console.WriteLine("|----> Hello From .NET <----|");
+            Console.WriteLine("Arguments: " + args.Length);
+            if(args.Length > 0)
             {
-                // Get the key
-                installed_versions = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\NET Framework Setup\NDP");
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-                Environment.Exit(1);
-            }
-
-            // Get all the subkeys
-            version_names = installed_versions.GetSubKeyNames();
-
-            if (version_names == null)
-            {
-                Console.WriteLine("No .NET Registry Keys found(?)");
-                Environment.Exit(1);
-            }
-            else
-            {
-                version_names = installed_versions.GetSubKeyNames();
-            }
-
-            Console.WriteLine("[!]\tInstalled .NET Versions:");
-            foreach (String version in version_names)
-            {
-                if (version.StartsWith("v"))
+                foreach(string arg in args)
                 {
-                    Console.WriteLine(String.Format("[+]\t{0}", version));
+                    Console.WriteLine("\t|> Argument: " + arg);
                 }
             }
+<<<<<<< HEAD
             return 0;
+=======
+            return;
+>>>>>>> d5be2ba87d3c38f581dca7c4248658564c1315ac
         }
     }
 }

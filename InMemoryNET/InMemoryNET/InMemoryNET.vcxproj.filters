@@ -15,8 +15,16 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="InMemoryNET.cpp">
+    <ClCompile Include="InMemory.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="CLR.hpp">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="base64.hpp">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
