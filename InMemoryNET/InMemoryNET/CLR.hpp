@@ -1,14 +1,10 @@
-#include "base64.hpp"
 #include <metahost.h>
 #include <windows.h>
 #include <string>
-#include <vector>
 #include <shellapi.h>
-#include <system_error>
 
 #pragma comment(lib, "mscoree.lib")
 
-// Import mscorlib.tlb (Microsoft Common Language Runtime Class Library).
 #import <mscorlib.tlb> raw_interfaces_only			\
     	high_property_prefixes("_get","_put","_putref")		\
     	rename("ReportEvent", "InteropServices_ReportEvent")	\
@@ -16,42 +12,18 @@
 using namespace mscorlib;
 #pragma endregion
 
-#define DEBUG
-
-#ifdef DEBUG
-#define debug_print(fmt, ...) fprintf(stderr, fmt, __VA_ARGS__)
-#else
-#define debug_print(fmt, ...)
-#endif
-
 namespace CLRManager
 {
 	class CLR
 	{
-		std::pair<PVOID, DWORD> GetShellcodeFromFile(LPCSTR Filename)
-		{
-			HANDLE hFile = CreateFileA(Filename, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL); // Open the DLL
-			DWORD FileSize = GetFileSize(hFile, NULL);
-			PVOID FileBuffer = VirtualAlloc(NULL, FileSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-			// Read the DLL
-			ReadFile(hFile, FileBuffer, FileSize, NULL, NULL);
-			return std::pair<PVOID, DWORD>(FileBuffer, FileSize);
-		}
-
 	public:
-		BOOL execute_assembly(std::string netB64, std::string argsB64)
+		BOOL execute_assembly(std::vector<unsigned char>assembly, std::string args)
 		{
-			if (netB64.empty())
-			{
-				return FALSE;
-			}
 
-			std::vector<unsigned char> assembly = base64::from_base64_vector(netB64);
-			std::string args = base64::from_base64(argsB64);
-			std::wstring wNetVersion;
+			std::wstring wNetVersion = L"v4.0.30319";
 
 			hr = CLRCreateInstance(CLSID_CLRMetaHost, IID_PPV_ARGS(&pCLRMetaHost));
-			debug_print("CLRCreateInstance(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			printf("[*] CLRCreateInstance(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -59,8 +31,8 @@ namespace CLRManager
 				return FALSE;
 			}
 
-			hr = pCLRMetaHost->GetRuntime(L"v4.0.30319", IID_PPV_ARGS(&pCLRRuntimeInfo));
-			debug_print("pCLRMetaHost->GetRuntime(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			hr = pCLRMetaHost->GetRuntime(wNetVersion.c_str(), IID_PPV_ARGS(&pCLRRuntimeInfo));
+			printf("[*] pCLRMetaHost->GetRuntime(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -69,7 +41,7 @@ namespace CLRManager
 			}
 
 			hr = pCLRRuntimeInfo->IsLoadable(&isLoadable);
-			debug_print("pCLRRuntimeInfo->IsLoadable(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			printf("[*] pCLRRuntimeInfo->IsLoadable(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -78,7 +50,7 @@ namespace CLRManager
 			}
 
 			hr = pCLRRuntimeInfo->GetInterface(CLSID_CorRuntimeHost, IID_PPV_ARGS(&pCorRuntimeHost));
-			debug_print("pCLRRuntimeInfo->GetInterface(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			printf("[*] pCLRRuntimeInfo->GetInterface(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -87,7 +59,7 @@ namespace CLRManager
 			}
 
 			hr = pCorRuntimeHost->Start();
-			debug_print("pCorRuntimeHost->Start(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			printf("[*] pCorRuntimeHost->Start(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -96,7 +68,7 @@ namespace CLRManager
 			}
 
 			hr = pCorRuntimeHost->GetDefaultDomain(&spAppDomainThunk);
-			debug_print("pCorRuntimeHost->GetDefaultDomain(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			printf("[*] pCorRuntimeHost->GetDefaultDomain(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -105,7 +77,7 @@ namespace CLRManager
 			}
 
 			hr = spAppDomainThunk->QueryInterface(IID_PPV_ARGS(&spDefaultAppDomain));
-			debug_print("spAppDomainThunk->QueryInterface(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			printf("[*] spAppDomainThunk->QueryInterface(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -122,7 +94,7 @@ namespace CLRManager
 			PVOID pvData = NULL;
 
 			hr = SafeArrayAccessData(safeArray, &pvData);
-			debug_print("SafeArrayAccessData(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			printf("[*] SafeArrayAccessData(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -130,10 +102,10 @@ namespace CLRManager
 				return FALSE;
 			}
 
-			memcpy(pvData, assembly.data(), assembly.size());
-			
+			std::memcpy(pvData, assembly.data(), assembly.size());
+
 			hr = SafeArrayUnaccessData(safeArray);
-			debug_print("SafeArrayUnaccessData(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			printf("[*] SafeArrayUnaccessData(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -142,7 +114,7 @@ namespace CLRManager
 			}
 
 			hr = spDefaultAppDomain->Load_3(safeArray, &spAssembly);
-			debug_print("spDefaultAppDomain->Load_3(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			printf("[*] spDefaultAppDomain->Load_3(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -151,7 +123,7 @@ namespace CLRManager
 			}
 
 			hr = spAssembly->get_EntryPoint(&pMethodInfo);
-			debug_print("spAssembly->get_EntryPoint(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			printf("[*] spAssembly->get_EntryPoint(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -210,7 +182,7 @@ namespace CLRManager
 			obj.vt = VT_NULL;
 
 			hr = pMethodInfo->Invoke_3(obj, safeArrayArgs, &retVal);
-			debug_print("pMethodInfo->Invoke_3(): %s (0x%x)\n", std::system_category().message(hr).c_str(), hr);
+			printf("[*] pMethodInfo->Invoke_3(): 0x%x\n", hr);
 
 			if (FAILED(hr))
 			{
@@ -225,12 +197,12 @@ namespace CLRManager
 	private:
 		ICLRRuntimeInfo* pCLRRuntimeInfo = NULL;
 		ICorRuntimeHost* pCorRuntimeHost = NULL;
-		ICLRMetaHost* pCLRMetaHost = NULL;
+		ICLRMetaHost*	 pCLRMetaHost = NULL;
 		_MethodInfoPtr	 pMethodInfo = NULL;
 		_AssemblyPtr	 spAssembly = NULL;
 		IUnknownPtr		 spAppDomainThunk = NULL;
 		_AppDomainPtr	 spDefaultAppDomain = NULL;
-		SAFEARRAY* safeArrayArgs = NULL;
+		SAFEARRAY*		 safeArrayArgs = NULL;
 		VARIANT			 retVal, obj, vtPsa;
 		BOOL			 isLoadable = FALSE;
 		HRESULT			 hr;
